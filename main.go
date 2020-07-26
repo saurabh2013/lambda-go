@@ -31,7 +31,7 @@ func HandlerRequest(req Request) (out Response, err error) {
 
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
-	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err != nil {
+	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
 		// Process objects in bucket.
 		out, err = processObjects(svc, s3Objects)
 	}
