@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"image/jpeg"
-	"io/ioutil"
 	"log"
-	"os"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -27,13 +27,16 @@ type Response struct {
 func HandlerRequest(req Request) (out Response, err error) {
 
 	// log.Print(req)
-	svc := s3.New(session.New())
-
+	//svc := s3.New(session.New())
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("us-east-1")},
+	)
+	svc := s3.New(sess)
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
-	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err != nil {
+	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
 		// Process objects in bucket.
-		out, err = processObjects(svc, s3Objects)
+		out, err = processObjects(svc, req, s3Objects)
 	}
 
 	return
@@ -51,36 +54,37 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 	return
 }
 
-func processObjects(svc *s3.S3, s3Objects []*s3.Object) (outputMsg Response, err error) {
-	path := "./images_in/"
-	pathOut := "./images_out/"
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
+func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (outputMsg Response, err error) {
 
-		log.Print("Processing ", f.Name())
-		file, err := os.Open(path + f.Name())
+	for _, f := range s3Objects {
+		log.Print(*f.Key)
+		r, out := svc.GetObjectRequest(&s3.GetObjectInput{
+			Bucket: aws.String(req.SourceBucket),
+			Key:    aws.String(*f.Key),
+		})
+		err := r.Send()
+		if err != nil {
+			panic(err)
+		}
+
+		img, err := jpeg.Decode(out.Body)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		img, err := jpeg.Decode(file)
-		if err != nil {
-			log.Fatal(err)
-		}
-		file.Close()
 		imgOut, _ := ResizeImg(img, 30, 30)
+		buf := new(bytes.Buffer)
+		jpeg.Encode(buf, imgOut, nil)
 
-		//this goes to destination bucket
-		out, err := os.Create(pathOut + "small-" + f.Name())
+		r1, _ := svc.PutObjectRequest(&s3.PutObjectInput{
+			Bucket:      aws.String(req.DestBucket),
+			Key:         aws.String(*f.Key),
+			Body:        bytes.NewReader(buf.Bytes()),
+			ContentType: aws.String(http.DetectContentType(buf.Bytes())),
+		})
+		err = r1.Send()
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		defer out.Close()
-		jpeg.Encode(out, imgOut, nil)
 
 	}
 
@@ -90,7 +94,8 @@ func processObjects(svc *s3.S3, s3Objects []*s3.Object) (outputMsg Response, err
 func main() {
 	//lambda.Start(HandlerRequest)
 
-	req := Request{SourceBucket: "sam", Timeout: 30}
+	req := Request{SourceBucket: "testlambdaprocess", Timeout: 30, DestBucket: "mylambdadestbucket"}
+
 	output, err := HandlerRequest(req)
 	if err != nil {
 		log.Printf("Error- %v", err)
