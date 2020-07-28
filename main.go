@@ -105,6 +105,6 @@ func main() {
 	} else {
 		log.Print("Done")
 	}
-	log.Printf("Total Time Taken %s", time.Since(start))
+	log.Printf("Execution Time: %s", time.Since(start))
 
 }
