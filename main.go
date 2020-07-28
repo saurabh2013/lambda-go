@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
@@ -101,11 +100,11 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error)
 }
 
 func main() {
-	start := time.Now()
+	//start := time.Now()
 	// req := Request{SourceBucket: "testlambdaimages", DestBucket: "testlambdaimages-small"}
 	// _, err := HandlerRequest(req)
 	lambda.Start(HandlerRequest)
 
-	log.Printf("Execution Time: %s", time.Since(start))
+	//log.Printf("Execution Time: %s", time.Since(start))
 
 }
