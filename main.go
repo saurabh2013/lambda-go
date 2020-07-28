@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -58,7 +57,7 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 
 func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error) {
 	var wg sync.WaitGroup
-
+	var mutex = &sync.Mutex{}
 	for _, f := range s3Objects {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup) {
@@ -77,7 +76,9 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error)
 			if err != nil {
 				log.Fatal(err)
 			}
+			mutex.Lock()
 			imgOut, _ := ResizeImg(img, 30, 30)
+			mutex.Unlock()
 			buf := new(bytes.Buffer)
 			jpeg.Encode(buf, imgOut, nil)
 
@@ -102,9 +103,9 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error)
 
 func main() {
 	start := time.Now()
-	// req := Request{SourceBucket: "testlambdaimages", DestBucket: "testlambdaimages-small"}
-	// _, err := HandlerRequest(req)
-	lambda.Start(HandlerRequest)
+	req := Request{SourceBucket: "testlambdaimages", DestBucket: "testlambdaimages-small"}
+	HandlerRequest(req)
+	//lambda.Start(HandlerRequest)
 
 	log.Printf("Execution Time: %s", time.Since(start))
 
