@@ -5,8 +5,10 @@ import (
 	"image/jpeg"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -25,20 +27,24 @@ type Response struct {
 }
 
 // HandlerRequest handles incoming requests
-func HandlerRequest(req Request) (out Response, err error) {
+func HandlerRequest(req Request) (out string, err error) {
 
 	log.Print("Starting")
 	//svc := s3.New(session.New())
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-west-2")},
+	awsSession, err := session.NewSession(&aws.Config{
+		Region: aws.String(os.Getenv("S3_REGION"))},
 	)
-	svc := s3.New(sess)
+	svc := s3.New(awsSession)
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
 	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
 		// Process objects in bucket.
-		out, err = processObjects(svc, req, s3Objects)
+		err = processObjects(svc, req, s3Objects)
 	}
+	if err != nil {
+		log.Printf("Error- %v", err)
+	}
+	log.Print("Done")
 
 	return
 }
@@ -55,7 +61,7 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 	return
 }
 
-func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (outputMsg Response, err error) {
+func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error) {
 
 	for _, f := range s3Objects {
 		log.Print("Processing- ", *f.Key)
@@ -95,17 +101,11 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (outputMsg 
 }
 
 func main() {
-	//lambda.Start(HandlerRequest)
-
 	start := time.Now()
-	req := Request{SourceBucket: "testlambdaimages", Timeout: 30, DestBucket: "testlambdaimages-small"}
+	// req := Request{SourceBucket: "testlambdaimages", DestBucket: "testlambdaimages-small"}
+	// _, err := HandlerRequest(req)
+	lambda.Start(HandlerRequest)
 
-	_, err := HandlerRequest(req)
-	if err != nil {
-		log.Printf("Error- %v", err)
-		return
-	} else {
-		log.Print("Done")
-	}
 	log.Printf("Execution Time: %s", time.Since(start))
+
 }
