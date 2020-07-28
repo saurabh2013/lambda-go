@@ -5,6 +5,8 @@ import (
 	"image/jpeg"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -18,27 +20,21 @@ type Request struct {
 	Timeout      int    `json:"timeout"`
 }
 
-// Response is a output reponse structure
-type Response struct {
-	Message string `json:"message"`
-}
-
 // HandlerRequest handles incoming requests
-func HandlerRequest(req Request) (out Response, err error) {
+func HandlerRequest(req Request) (out string, err error) {
 
-	// log.Print(req)
+	log.Print("Starting")
 	//svc := s3.New(session.New())
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-east-1")},
+		Region: aws.String("us-west-2")},
 	)
 	svc := s3.New(sess)
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
 	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
 		// Process objects in bucket.
-		out, err = processObjects(svc, req, s3Objects)
+		err = processObjects(svc, req, s3Objects)
 	}
-
 	return
 }
 
@@ -54,52 +50,61 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 	return
 }
 
-func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (outputMsg Response, err error) {
+func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error) {
+	var wg sync.WaitGroup
 
 	for _, f := range s3Objects {
-		log.Print(*f.Key)
-		r, out := svc.GetObjectRequest(&s3.GetObjectInput{
-			Bucket: aws.String(req.SourceBucket),
-			Key:    aws.String(*f.Key),
-		})
-		err := r.Send()
-		if err != nil {
-			panic(err)
-		}
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			log.Print("Processing- ", *f.Key)
+			r, out := svc.GetObjectRequest(&s3.GetObjectInput{
+				Bucket: aws.String(req.SourceBucket),
+				Key:    aws.String(*f.Key),
+			})
+			err := r.Send()
+			if err != nil {
+				log.Fatal("Error while downloading", *f.Key, err)
+			}
 
-		img, err := jpeg.Decode(out.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-		imgOut, _ := ResizeImg(img, 30, 30)
-		buf := new(bytes.Buffer)
-		jpeg.Encode(buf, imgOut, nil)
+			img, err := jpeg.Decode(out.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			imgOut, _ := ResizeImg(img, 30, 30)
+			buf := new(bytes.Buffer)
+			jpeg.Encode(buf, imgOut, nil)
 
-		r1, _ := svc.PutObjectRequest(&s3.PutObjectInput{
-			Bucket:      aws.String(req.DestBucket),
-			Key:         aws.String(*f.Key),
-			Body:        bytes.NewReader(buf.Bytes()),
-			ContentType: aws.String(http.DetectContentType(buf.Bytes())),
-		})
-		err = r1.Send()
-		if err != nil {
-			log.Fatal(err)
-		}
+			reqUpload, _ := svc.PutObjectRequest(&s3.PutObjectInput{
+				Bucket:      aws.String(req.DestBucket),
+				Key:         aws.String(*f.Key),
+				Body:        bytes.NewReader(buf.Bytes()),
+				ContentType: aws.String(http.DetectContentType(buf.Bytes())),
+			})
+			err = reqUpload.Send()
+			if err != nil {
+				log.Fatal("Error while uploading", *f.Key, err)
+			} else {
+				log.Print("Completed- ", *f.Key)
+			}
 
+		}(&wg)
 	}
-
+	wg.Wait()
 	return
 }
 
 func main() {
-	//lambda.Start(HandlerRequest)
+	start := time.Now()
+	req := Request{SourceBucket: "testlambdaimages", Timeout: 30, DestBucket: "testlambdaimages-small"}
 
-	req := Request{SourceBucket: "testlambdaprocess", Timeout: 30, DestBucket: "mylambdadestbucket"}
-
-	output, err := HandlerRequest(req)
+	_, err := HandlerRequest(req)
 	if err != nil {
 		log.Printf("Error- %v", err)
 		return
+	} else {
+		log.Print("Done")
 	}
-	log.Print(output)
+	log.Printf("Total Time Taken %s", time.Since(start))
+
 }
