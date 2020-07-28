@@ -5,9 +5,11 @@ import (
 	"image/jpeg"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -17,7 +19,6 @@ import (
 type Request struct {
 	SourceBucket string `json:"sourcebucket"`
 	DestBucket   string `json:"destinationbucket"`
-	Timeout      int    `json:"timeout"`
 }
 
 // HandlerRequest handles incoming requests
@@ -25,16 +26,21 @@ func HandlerRequest(req Request) (out string, err error) {
 
 	log.Print("Starting")
 	//svc := s3.New(session.New())
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-west-2")},
+	awsSession, err := session.NewSession(&aws.Config{
+		Region: aws.String(os.Getenv("S3_REGION"))},
 	)
-	svc := s3.New(sess)
+	svc := s3.New(awsSession)
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
 	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
 		// Process objects in bucket.
 		err = processObjects(svc, req, s3Objects)
 	}
+	if err != nil {
+		log.Printf("Error- %v", err)
+	}
+	log.Print("Done")
+
 	return
 }
 
@@ -96,15 +102,10 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error)
 
 func main() {
 	start := time.Now()
-	req := Request{SourceBucket: "testlambdaimages", Timeout: 30, DestBucket: "testlambdaimages-small"}
+	// req := Request{SourceBucket: "testlambdaimages", DestBucket: "testlambdaimages-small"}
+	// _, err := HandlerRequest(req)
+	lambda.Start(HandlerRequest)
 
-	_, err := HandlerRequest(req)
-	if err != nil {
-		log.Printf("Error- %v", err)
-		return
-	} else {
-		log.Print("Done")
-	}
 	log.Printf("Execution Time: %s", time.Since(start))
 
 }
