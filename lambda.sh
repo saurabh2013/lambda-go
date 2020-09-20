@@ -48,6 +48,6 @@ invoke(){
 invoke $FUNC_NAME
 echo "\n"
 
-invoke "my-function-async"
+invoke "my-function-sync"
 
 echo "=> Done"

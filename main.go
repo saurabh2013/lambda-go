@@ -24,7 +24,8 @@ type Request struct {
 func HandlerRequest(req Request) (out string, err error) {
 
 	log.Print("Starting")
-	processSync(req)
+	//process sync/async
+	process(req)
 
 	log.Print("Done")
 
@@ -42,12 +43,14 @@ func main() {
 
 }
 
-func processSync(req Request) {
+var svc *s3.S3
+
+func process(req Request) {
 	//svc := s3.New(session.New())
 	awsSession, err := session.NewSession(&aws.Config{
 		Region: aws.String(os.Getenv("S3_REGION"))},
 	)
-	svc := s3.New(awsSession)
+	svc = s3.New(awsSession)
 	// Get the list of objects need to process
 	var s3Objects []*s3.Object
 	if s3Objects, err = getS3BucketOjects(svc, req.SourceBucket); err == nil {
@@ -70,14 +73,22 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 	return
 }
 
+var wg sync.WaitGroup
+
+type cReq struct {
+	obj *s3.GetObjectOutput
+	key string
+	req Request
+}
+
 func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error) {
-	var wg sync.WaitGroup
+
+	var ch = make(chan cReq, len(s3Objects))
+	wg.Add(len(s3Objects))
 
 	for _, f := range s3Objects {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			log.Print("Processing- ", *f.Key)
+		go func(ch chan cReq, f *s3.Object) {
+			log.Print("Downloading- ", *f.Key)
 			r, out := svc.GetObjectRequest(&s3.GetObjectInput{
 				Bucket: aws.String(req.SourceBucket),
 				Key:    aws.String(*f.Key),
@@ -86,32 +97,52 @@ func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error)
 			if err != nil {
 				log.Fatal("Error while downloading", *f.Key, err)
 			}
+			hh := cReq{obj: out, key: *f.Key}
 
-			img, err := jpeg.Decode(out.Body)
-			if err != nil {
-				log.Fatal(err)
-			}
+			ch <- hh
+		}(ch, f)
 
-			imgOut, _ := Resize(img, 30, 30)
-
-			buf := new(bytes.Buffer)
-			jpeg.Encode(buf, imgOut, nil)
-
-			reqUpload, _ := svc.PutObjectRequest(&s3.PutObjectInput{
-				Bucket:      aws.String(req.DestBucket),
-				Key:         aws.String(*f.Key),
-				Body:        bytes.NewReader(buf.Bytes()),
-				ContentType: aws.String(http.DetectContentType(buf.Bytes())),
-			})
-			err = reqUpload.Send()
-			if err != nil {
-				log.Fatal("Error while uploading", *f.Key, err)
-			} else {
-				log.Print("Completed- ", *f.Key)
-			}
-
-		}(&wg)
 	}
+	for i := 0; i < len(s3Objects); i++ {
+		select {
+		case m := <-ch:
+			go processAync(m.obj, m.key, req.DestBucket)
+			// case <-time.After(3 * time.Second):
+			// 	fmt.Println("timeout 2")
+		}
+	}
+
 	wg.Wait()
+	//close(ch)
 	return
+}
+
+func processAync(obj *s3.GetObjectOutput, key, destBucket string) {
+
+	img, err := jpeg.Decode(obj.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	imgOut, _ := Resize(img, 30, 30)
+
+	buf := new(bytes.Buffer)
+	jpeg.Encode(buf, imgOut, nil)
+
+	go func(buf bytes.Buffer, key, destBucket string) {
+		defer wg.Done()
+		reqUpload, _ := svc.PutObjectRequest(&s3.PutObjectInput{
+			Bucket:      aws.String(destBucket),
+			Key:         aws.String(key),
+			Body:        bytes.NewReader(buf.Bytes()),
+			ContentType: aws.String(http.DetectContentType(buf.Bytes())),
+		})
+		err = reqUpload.Send()
+		if err != nil {
+			log.Fatal("Error while uploading", key, err)
+		} else {
+			log.Print("Completed- ", key)
+		}
+	}(*buf, key, destBucket)
+
 }
