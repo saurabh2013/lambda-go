@@ -7,17 +7,14 @@ import (
 )
 
 // Resize image based on input scaling parameter.
-func ResizeImg(img image.Image, w, h uint) (image.Image, error) {
-	if img == nil {
-		return nil, errors.New("Input image is found nil.")
+func Resize(inImg image.Image, w, h int) (image.Image, error) {
+	if inImg == nil {
+		return nil, errors.New("input image can not be nil")
 	}
-	return resize(img, img.Bounds(), 100, 100), nil
-}
 
-func resize(m image.Image, r image.Rectangle, w, h int) image.Image {
-
+	r := inImg.Bounds()
 	if w == 0 || h == 0 || r.Dx() <= 0 || r.Dy() <= 0 {
-		return image.NewRGBA64(image.Rect(0, 0, w, h))
+		return image.NewRGBA64(image.Rect(0, 0, w, h)), nil
 	}
 	curw, curh := r.Dx(), r.Dy()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -25,7 +22,7 @@ func resize(m image.Image, r image.Rectangle, w, h int) image.Image {
 		for x := 0; x < w; x++ {
 			subx := x * curw / w
 			suby := y * curh / h
-			r32, g32, b32, a32 := m.At(subx, suby).RGBA()
+			r32, g32, b32, a32 := inImg.At(subx, suby).RGBA()
 			r := uint8(r32 >> 8)
 			g := uint8(g32 >> 8)
 			b := uint8(b32 >> 8)
@@ -33,8 +30,30 @@ func resize(m image.Image, r image.Rectangle, w, h int) image.Image {
 			img.SetRGBA(x, y, color.RGBA{r, g, b, a})
 		}
 	}
-	return img
+	return img, nil
 }
+
+// func resizeImg(m image.Image, r image.Rectangle, w, h int) image.Image {
+
+// 	if w == 0 || h == 0 || r.Dx() <= 0 || r.Dy() <= 0 {
+// 		return image.NewRGBA64(image.Rect(0, 0, w, h))
+// 	}
+// 	curw, curh := r.Dx(), r.Dy()
+// 	img := image.NewRGBA(image.Rect(0, 0, w, h))
+// 	for y := 0; y < h; y++ {
+// 		for x := 0; x < w; x++ {
+// 			subx := x * curw / w
+// 			suby := y * curh / h
+// 			r32, g32, b32, a32 := m.At(subx, suby).RGBA()
+// 			r := uint8(r32 >> 8)
+// 			g := uint8(g32 >> 8)
+// 			b := uint8(b32 >> 8)
+// 			a := uint8(a32 >> 8)
+// 			img.SetRGBA(x, y, color.RGBA{r, g, b, a})
+// 		}
+// 	}
+// 	return img
+// }
 
 // Resize images to given parameters.
 // func Resize(width uint, height uint, quality uint, img []byte) (bytes []byte, err error) {
