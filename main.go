@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
@@ -70,47 +71,47 @@ func getS3BucketOjects(svc *s3.S3, bucketName string) (s3Objects []*s3.Object, e
 }
 
 func processObjects(svc *s3.S3, req Request, s3Objects []*s3.Object) (err error) {
-	// var wg sync.WaitGroup
+	var wg sync.WaitGroup
 
 	for _, f := range s3Objects {
-		// wg.Add(1)
-		// go func(wg *sync.WaitGroup) {
-		// 	defer wg.Done()
-		log.Print("Processing- ", *f.Key)
-		r, out := svc.GetObjectRequest(&s3.GetObjectInput{
-			Bucket: aws.String(req.SourceBucket),
-			Key:    aws.String(*f.Key),
-		})
-		err := r.Send()
-		if err != nil {
-			log.Fatal("Error while downloading", *f.Key, err)
-		}
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			log.Print("Processing- ", *f.Key)
+			r, out := svc.GetObjectRequest(&s3.GetObjectInput{
+				Bucket: aws.String(req.SourceBucket),
+				Key:    aws.String(*f.Key),
+			})
+			err := r.Send()
+			if err != nil {
+				log.Fatal("Error while downloading", *f.Key, err)
+			}
 
-		img, err := jpeg.Decode(out.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
+			img, err := jpeg.Decode(out.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
 
-		imgOut, _ := Resize(img, 30, 30)
+			imgOut, _ := Resize(img, 30, 30)
 
-		buf := new(bytes.Buffer)
-		jpeg.Encode(buf, imgOut, nil)
+			buf := new(bytes.Buffer)
+			jpeg.Encode(buf, imgOut, nil)
 
-		reqUpload, _ := svc.PutObjectRequest(&s3.PutObjectInput{
-			Bucket:      aws.String(req.DestBucket),
-			Key:         aws.String(*f.Key),
-			Body:        bytes.NewReader(buf.Bytes()),
-			ContentType: aws.String(http.DetectContentType(buf.Bytes())),
-		})
-		err = reqUpload.Send()
-		if err != nil {
-			log.Fatal("Error while uploading", *f.Key, err)
-		} else {
-			log.Print("Completed- ", *f.Key)
-		}
+			reqUpload, _ := svc.PutObjectRequest(&s3.PutObjectInput{
+				Bucket:      aws.String(req.DestBucket),
+				Key:         aws.String(*f.Key),
+				Body:        bytes.NewReader(buf.Bytes()),
+				ContentType: aws.String(http.DetectContentType(buf.Bytes())),
+			})
+			err = reqUpload.Send()
+			if err != nil {
+				log.Fatal("Error while uploading", *f.Key, err)
+			} else {
+				log.Print("Completed- ", *f.Key)
+			}
 
-		// }(&wg)
+		}(&wg)
 	}
-	// wg.Wait()
+	wg.Wait()
 	return
 }
