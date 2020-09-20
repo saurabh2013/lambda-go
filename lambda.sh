@@ -1,5 +1,5 @@
 
-FUNC_NAME="my-function-sync"
+FUNC_NAME="my-function-async"
 
 export AWS_PROFILE=testuser
 AWS_REGION=us-west-2
@@ -8,10 +8,14 @@ source_bucket="testlambdaimages"
 target_bucket="testlambdaimages-small"
 
 rebuid(){
-echo "=> Re-building code"
-rm function.zip main   
-GOOS=linux go build main.go resize.go    
-zip function.zip main   
+    echo "=> Re-building code"
+    rm function.zip main   
+    GOOS=linux go build main.go resize.go 
+    if [ $? -ne 0 ]; then
+        echo " failed to build"
+        exit  
+    fi
+    zip function.zip main   
 }
  
  
@@ -34,7 +38,7 @@ fi
 
 
 invoke(){
-    echo "=> Function invoke $1"
+    echo "=> Function invoke '$1'"
     aws lambda invoke \
     --function-name $1 --region $AWS_REGION \
     --payload '{"sourcebucket": "'$source_bucket'","destinationbucket": "'$target_bucket'"}' \
@@ -42,6 +46,8 @@ invoke(){
 }
 
 invoke $FUNC_NAME
+echo "\n"
+
 invoke "my-function-async"
 
 echo "=> Done"
